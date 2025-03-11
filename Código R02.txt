@@ -1,0 +1,74 @@
+# Carregar pacotes necessários
+library(readxl)
+library(writexl)
+library(ggplot2)
+library(dplyr)
+
+# Carregar os dados do Excel
+dados <- read_excel("planilha taxa de juros ótima.xlsx", sheet = "Planilha1")
+
+# Garantir que a coluna de datas esteja no formato Date
+dados$Data__Mês <- as.Date(dados$Data__Mês, format="%Y-%m-%d")
+
+# Filtrar dados a partir de janeiro de 2022
+dados <- dados[dados$Data__Mês >= as.Date("2022-01-01"), ]
+
+# Verificar os nomes das colunas
+print(colnames(dados))
+
+# Garantir que as colunas necessárias existem e não têm valores NA
+if (!"Sdo_emprestimo" %in% colnames(dados) | !"capital" %in% colnames(dados)) {
+  stop("Erro: As colunas 'Sd_emprestimo' ou 'capital' não foram encontradas nos dados.")
+}
+
+dados$Sdo_emprestimo[is.na(dados$Sdo_emprestimo)] <- 0
+dados$capital[is.na(dados$capital)] <- 0
+
+# Criar pesos para a média ponderada (mais recente tem mais peso)
+n <- nrow(dados)
+pesos <- seq(1, n) / sum(seq(1, n))
+
+# Calcular a média ponderada da taxa Selic
+taxa_selic_media <- sum(dados$Taxa_selic * pesos)
+
+# Determinar a meta de receita que deve ser gerada
+meta_receita <- 1.1 * (taxa_selic_media * dados$capital)
+
+# Calcular a taxa de juros ótima baseada no saldo de empréstimos
+dados$Taxa_de_juros_ótima <- ifelse(dados$Sdo_emprestimo > 0, meta_receita / dados$Sdo_emprestimo, NA)
+
+# Garantir que a taxa de juros ótima não seja negativa
+dados$Taxa_de_juros_ótima <- pmax(dados$Taxa_de_juros_ótima, 0, na.rm = TRUE)
+
+# Criar gráfico de tendência da taxa de juros ótima
+grafico <- ggplot(dados, aes(x = Data__Mês, y = Taxa_de_juros_ótima)) +
+  geom_line(color = "blue", size = 1) +
+  geom_point(color = "red", size = 2) +
+  labs(title = "Tendência da Taxa de Juros Ótima",
+       x = "Data",
+       y = "Taxa de Juros Ótima (%)") +
+  theme_minimal()
+
+# Salvar o gráfico
+ggsave("grafico_taxa_juros_otima.png", plot = grafico, width = 8, height = 5)
+
+# Criar relatório
+relatorio <- paste(
+  "Relatório de Análise da Taxa de Juros Ótima\n\n",
+  "1. Período Analisado: Desde Janeiro de 2022\n",
+  "2. Taxa Selic Média Ponderada: ", round(taxa_selic_media, 4), "%\n",
+  "3. Meta de Receita: 110% da Selic aplicada ao Capital\n",
+  "4. Taxa de Juros Ótima Calculada:\n",
+  paste0(round(dados$Taxa_de_juros_ótima, 4), collapse = ", "), "\n\n",
+  "Conclusão: A taxa de juros ótima foi determinada com base no saldo de empréstimos,
+   garantindo um retorno médio de 110% da Selic no longo prazo. O gráfico anexo apresenta a
+   tendência da taxa de juros ótima ao longo do tempo."
+)
+
+View(dados)
+
+# Salvar o relatório em um arquivo de texto
+writeLines(relatorio, "relatorio_taxa_juros_otima.txt")
+
+# Exportar os dados para um novo arquivo Excel
+write_xlsx(dados, "planilha_taxa_juros_otima.xlsx")
